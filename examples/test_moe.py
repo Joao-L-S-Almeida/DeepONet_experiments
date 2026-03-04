@@ -88,4 +88,5 @@ optimizer.fit(
     loss="rmse",
     device="cpu",
 )
-
+print(encoder_decoder)
+print(encoder_decoder(input_data).shape)
