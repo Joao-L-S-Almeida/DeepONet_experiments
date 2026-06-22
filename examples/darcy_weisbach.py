@@ -1,4 +1,4 @@
-
+import os
 import sympy as sp
 import numpy as np
 import torch
@@ -57,11 +57,10 @@ input_labels = ["x"]
 output_labels = ["p_tilde"]
 n_inputs = len(input_labels)
 n_outputs = len(output_labels)
-n_epochs = 50000 
 lr = 1e-3 
+p_ref = 1e6
 x_intv = [0, 1]
 s_intv = np.stack([[1e5], [1e6]], axis=0)
-p_ref = 1e6
 
 boundary_penalties = [1]
 weights_residual =  [1]
@@ -89,19 +88,20 @@ X_train = np.hstack([grid[1].flatten()[:, None], grid[0].flatten()[:, None]])
 # Dataset Definition for Initial Condition
 # u=0 at t=0 for any x
 
-x_init = np.linspace(0, x_max, 3*n)[:, None]
-t_init = np.zeros(3*n)[:, None]
+x_init = np.linspace(0, x_max, 1*n)[:, None]
+t_init = np.zeros(1*n)[:, None]
 
 data_initial = np.hstack([x_init, t_init])
 
-u_initial = np.zeros(3*n)[:, None]
-initial_state_test = np.array([1, 0, 0])
+u_initial = np.zeros(1*n)[:, None]
+initial_state_test = np.random.uniform(low=x_intv[0], high=x_intv[1], size=1)
+initial_state_test = initial_state_test/p_ref
 
 # Data definition for boundary condition
 # For t>0, u=1 for x=0.
 
-x_bc = np.zeros(3*n)[:, None] 
-t_bc = np.linspace(1e-8, T_max, 3*n)[:, None]
+x_bc = np.zeros(1*n)[:, None] 
+t_bc = np.linspace(1e-8, T_max, 1*n)[:, None]
 
 data_bc = np.hstack([x_bc, t_bc])
 
@@ -110,7 +110,8 @@ data_bc = np.hstack([x_bc, t_bc])
 f = "D(p_tilde, x) + rho*g*sin(theta)/p_ref + friction(u, visc, rho, D)*rho*(u**2)/(2*D*p_ref)"
 
 U_t = np.random.uniform(low=x_intv[0], high=x_intv[1], size=Q)
-U_s = np.random.uniform(low=s_intv[0], high=s_intv[1], size=(N, 3))
+U_s = np.random.uniform(low=s_intv[0], high=s_intv[1], size=(N, 1))
+U_s = U_s/p_ref
 
 branch_input_train = np.tile(U_s[:, None, :], (1, Q, 1)).reshape(N * Q, -1)
 trunk_input_train = np.tile(U_t[:, None], (N, 1))
@@ -128,7 +129,7 @@ n_outputs = len(output_labels)
 
 lambda_1 = 0.0  # Penalty for the L¹ regularization (Lasso)
 lambda_2 = 0.0  # Penalty factor for the L² regularization
-n_epochs = 400_000  # Maximum number of iterations for ADAM
+n_epochs = 5_00  # Maximum number of iterations for ADAM
 lr = 1e-3  # Initial learning rate for the ADAM algorithm
 
 
@@ -140,7 +141,7 @@ def model():
     from simulai.regression import SLFNN, ConvexDenseNetwork
 
     n_latent = 100
-    n_inputs_b = 3
+    n_inputs_b = 1
     n_inputs_t = 1
     n_outputs = 1
 
@@ -234,27 +235,33 @@ params = {
     "weights": [1],
 }
 
-optimizer.fit(
-    op=net,
-    input_data=input_data,
-    n_epochs=n_epochs,
-    loss="opirmse",
-    params=params,
-    device="gpu",
-    batch_size=batch_size,
-)
+if not os.path.isdir("darcy_deeponet"):
+    optimizer.fit(
+        op=net,
+        input_data=input_data,
+        n_epochs=n_epochs,
+        loss="opirmse",
+        params=params,
+        device="gpu",
+        batch_size=batch_size,
+    )
 
-# Saving model
-print("Saving model.")
-saver = SPFile(compact=False)
-saver.write(save_dir=save_path, name="rober_deeponet", model=net, template=model)
+    # Saving model
+    print("Saving model.")
+    saver = SPFile(compact=False)
+    save_path = "."
+    saver.write(save_dir=save_path, name="darcy_deeponet", model=net, template=model)
+else:
+    saver = SPFile(compact=False)
+    save_path = "."
+    net = saver.read("darcy_deeponet")
 
-approximated_data = net.eval(
-    trunk_data=trunk_input_test, branch_data=branch_input_test
-)
+    approximated_data = net.eval(
+        trunk_data=trunk_input_test, branch_data=branch_input_test
+    )
 
-for ii in range(n_outputs):
-    plt.plot(approximated_data[:, ii], label="Approximated")
-    plt.legend()
-    plt.savefig(f"rober_deeponet_time_int_{ii}.png")
-    plt.show()
+    for ii in range(n_outputs):
+        plt.plot(approximated_data[:, ii], label="Approximated")
+        plt.legend()
+        plt.savefig(f"rober_deeponet_time_int_{ii}.png")
+        plt.show()
